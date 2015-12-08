@@ -1,25 +1,36 @@
 #!/usr/bin/env node
 
 var chokidar = require('chokidar');
-var fs = require('fs');
 var path = require('path');
+var os = require('os');
+var spawn = require('child_process').spawn;
 var zmq = require('zmq');
 
 var sock;
 var log = console.log.bind(console);
-var host = process.env.HOST;
-var url = 'tcp://' + (host || '0.0.0.0') + ':12321';
+var url = 'tcp://0.0.0.0:12321';
 
-if (host) {
+var handleStderr = function (data) { console.error(data.toString()); };
 
-  // Host machine
+var isoToMtime = function (iso) {
+  return iso.replace(/:(\d{2})\.\d{3}Z$/, '.$1').replace(/[-:T]/g, '');
+};
+
+var cache = {};
+
+if (os.type() === 'darwin') {
+
+  // Host machine (OS X)
   sock = zmq.socket('pub');
   var watchPath = path.resolve();
   sock.connect(url);
 
   var sendMessage = function (path, stat) {
-    log(stat.mtime.toISOString() + ' ' + path);
-    sock.send(['change', JSON.stringify({path: path, mtime: stat.mtime})]);
+    var mtime = stat.mtime.toISOString();
+    if (cache[path] && cache[path].mtime === mtime) return;
+    cache[path] = mtime;
+    log(mtime + ' ' + path);
+    sock.send(['change', JSON.stringify({path: path, mtime: mtime})]);
   };
 
   log('Watching ' + watchPath + ' and publishing changes on ' + url);
@@ -33,18 +44,16 @@ if (host) {
     .on('change', sendMessage);
 } else {
 
-  // Guest machine
+  // Guest machine (Linux)
   sock = zmq.socket('sub');
   sock.bindSync(url);
   sock.subscribe('change');
-
-  var cb = function (er) { if (er) console.error(er); };
 
   log('Listening for published changes on ' + url);
   sock.on('message', function (topic, message) {
     var data = JSON.parse(message.toString());
     log(data.mtime + ' ' + data.path);
-    var mtime = new Date(data.mtime);
-    fs.utimes(data.path, mtime, mtime, cb);
+    var child = spawn('touch', ['-mct', isoToMtime(data.mtime), data.path]);
+    child.stderr.on('data', handleStderr);
   });
 }
