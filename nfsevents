@@ -2,37 +2,42 @@
 
 var chokidar = require('chokidar');
 var moment = require('moment');
+var fs = require('fs');
 var path = require('path');
 var os = require('os');
 var spawn = require('child_process').spawn;
 var zmq = require('zmq');
 
-var sock;
-var log = console.log.bind(console);
-var url = 'tcp://0.0.0.0:12321';
-
-var handleStderr = function (data) { console.error(data.toString()); };
-
 var FORMAT = 'YYYYMMDDhhmm.ss';
+var URL = 'tcp://0.0.0.0:12321';
+var PID_PATH = '.nfsevents_pid';
+var CACHE = {};
 
-var cache = {};
+var LOG = console.log.bind(console);
 
+var HANDLE_STDERR = function (data) { console.error(data.toString()); };
+
+var sock;
 if (os.platform() === 'darwin') {
+
+  // Kill the existing nfsevents watcher for this directory if it exists.
+  try { process.kill(parseInt(fs.readFileSync(PID_PATH))); } catch (er) {}
+  fs.writeFileSync(PID_PATH, process.pid);
 
   // Host machine (OS X)
   sock = zmq.socket('pub');
   var watchPath = path.resolve();
-  sock.connect(url);
+  sock.connect(URL);
 
   var sendMessage = function (path, stat) {
     var mtime = moment(stat.mtime).format(FORMAT);
-    if (cache[path] && cache[path] === mtime) return;
-    cache[path] = mtime;
-    log(mtime + ' ' + path);
+    if (CACHE[path] && CACHE[path] === mtime) return;
+    CACHE[path] = mtime;
+    LOG(mtime + ' ' + path);
     sock.send(['change', JSON.stringify({path: path, mtime: mtime})]);
   };
 
-  log('Watching ' + watchPath + ' and publishing changes on ' + url);
+  LOG('Watching ' + watchPath + ' and publishing changes to ' + URL);
   chokidar
     .watch(watchPath, {
       alwaysStat: true,
@@ -45,14 +50,14 @@ if (os.platform() === 'darwin') {
 
   // Guest machine (Linux)
   sock = zmq.socket('sub');
-  sock.bindSync(url);
+  sock.bindSync(URL);
   sock.subscribe('change');
 
-  log('Listening for published changes on ' + url);
+  LOG('Listening for published changes on ' + URL);
   sock.on('message', function (topic, message) {
     var data = JSON.parse(message.toString());
-    log(data.mtime + ' ' + data.path);
+    LOG(data.mtime + ' ' + data.path);
     var child = spawn('touch', ['-mct', data.mtime, data.path]);
-    child.stderr.on('data', handleStderr);
+    child.stderr.on('data', HANDLE_STDERR)
   });
 }
