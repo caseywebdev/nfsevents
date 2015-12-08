@@ -18,7 +18,7 @@ var isoToMtime = function (iso) {
 
 var cache = {};
 
-if (os.type() === 'darwin') {
+if (os.platform() === 'darwin') {
 
   // Host machine (OS X)
   sock = zmq.socket('pub');
