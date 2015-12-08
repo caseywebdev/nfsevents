@@ -1,0 +1,17 @@
+{
+  "name": "nfsevents",
+  "version": "0.0.1",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/caseywebdev/nfsevents"
+  },
+  "bin": {
+    "nfsevents-client": "bin/nfsevents-client",
+    "nfsevents-host": "bin/nfsevents-host"
+  },
+  "dependencies": {
+    "chokidar": "1.4.0",
+    "zmq": "2.14.0"
+  }
+}
