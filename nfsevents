@@ -68,7 +68,7 @@ if (os.platform() === 'darwin') {
 
   const handleRegister = (socket, watchPath, cb) => {
     const existing = _.find(sockets, {watchPath});
-    if (existing) return cb(new Error(`${watchPath} is alread being watched`));
+    if (existing) return cb(new Error(`${watchPath} is already being watched`));
     socket.watchPath = watchPath;
     cb();
   };
