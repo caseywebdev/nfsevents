@@ -27,7 +27,7 @@ if (os.platform() === 'darwin') {
 
   var sendMessage = function (path, stat) {
     var mtime = stat.mtime.toISOString();
-    if (cache[path] && cache[path].mtime === mtime) return;
+    if (cache[path] && cache[path] === mtime) return;
     cache[path] = mtime;
     log(mtime + ' ' + path);
     sock.send(['change', JSON.stringify({path: path, mtime: mtime})]);
