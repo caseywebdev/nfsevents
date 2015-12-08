@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 var chokidar = require('chokidar');
+var fs = require('fs');
 var path = require('path');
-var spawn = require('child_process').spawn;
 var zmq = require('zmq');
 
 var sock;
@@ -12,7 +12,7 @@ var url = 'tcp://' + (host || '0.0.0.0') + ':12321';
 
 if (host) {
 
-  // Guest machine
+  // Host machine
   sock = zmq.socket('pub');
   var watchPath = path.resolve();
   sock.connect(url);
@@ -33,21 +33,18 @@ if (host) {
     .on('change', sendMessage);
 } else {
 
-  // Host machine
+  // Guest machine
   sock = zmq.socket('sub');
   sock.bindSync(url);
   sock.subscribe('change');
 
-  var handleStderr = function (data) { console.error(data.toString()); };
-  var isoToMtime = function (iso) {
-    return iso.replace(/:(\d{2})\.\d{3}Z$/, '.$1').replace(/[-:T]/g, '');
-  };
+  var cb = function (er) { if (er) console.error(er); };
 
   log('Listening for published changes on ' + url);
   sock.on('message', function (topic, message) {
     var data = JSON.parse(message.toString());
     log(data.mtime + ' ' + data.path);
-    var child = spawn('touch', ['-mct', isoToMtime(data.mtime), data.path]);
-    child.stderr.on('data', handleStderr);
+    var mtime = new Date(data.mtime);
+    fs.utimes(data.path, mtime, mtime, cb);
   });
 }
