@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 var chokidar = require('chokidar');
+var moment = require('moment');
 var path = require('path');
 var os = require('os');
 var spawn = require('child_process').spawn;
@@ -12,12 +13,7 @@ var url = 'tcp://0.0.0.0:12321';
 
 var handleStderr = function (data) { console.error(data.toString()); };
 
-var dateToMtime = function (date) {
-  return date
-    .toISOString()
-    .replace(/:(\d{2})\.\d{3}Z$/, '.$1')
-    .replace(/[-:T]/g, '');
-};
+var FORMAT = 'YYYYMMDDhhmm.ss';
 
 var cache = {};
 
@@ -29,7 +25,7 @@ if (os.platform() === 'darwin') {
   sock.connect(url);
 
   var sendMessage = function (path, stat) {
-    var mtime = dateToMtime(stat.mtime);
+    var mtime = moment(stat.mtime).format(FORMAT);
     if (cache[path] && cache[path] === mtime) return;
     cache[path] = mtime;
     log(mtime + ' ' + path);
