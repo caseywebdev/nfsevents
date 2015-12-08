@@ -6,22 +6,23 @@ var spawn = require('child_process').spawn;
 var zmq = require('zmq');
 
 var sock;
+var log = console.log.bind(console);
 var host = process.env.HOST;
+var url = 'tcp://' + (host || '0.0.0.0') + ':12321';
 
 if (host) {
 
   // Guest machine
   sock = zmq.socket('pub');
-  var url = 'tcp://' + host + ':12321';
   var watchPath = path.resolve();
   sock.connect(url);
 
   var sendMessage = function (path, stat) {
-    console.log(stat.mtime.toISOString() + ' ' + path);
+    log(stat.mtime.toISOString() + ' ' + path);
     sock.send(['change', JSON.stringify({path: path, mtime: stat.mtime})]);
   };
 
-  console.log('Watching ' + watchPath + ' and publishing changes on ' + url);
+  log('Watching ' + watchPath + ' and publishing changes on ' + url);
   chokidar
     .watch(watchPath, {
       alwaysStat: true,
@@ -34,7 +35,6 @@ if (host) {
 
   // Host machine
   sock = zmq.socket('sub');
-  var url = 'tcp://0.0.0.0:12321';
   sock.bindSync(url);
   sock.subscribe('change');
 
@@ -43,10 +43,10 @@ if (host) {
     return iso.replace(/:(\d{2})\.\d{3}Z$/, '.$1').replace(/[-:T]/g, '');
   };
 
-  console.log('Listening for published changes on ' + url);
-  sock.on('message', function (message) {
+  log('Listening for published changes on ' + url);
+  sock.on('message', function (topic, message) {
     var data = JSON.parse(message.toString());
-    console.log(data.mtime + ' ' + data.path);
+    log(data.mtime + ' ' + data.path);
     var child = spawn('touch', ['-mct', isoToMtime(data.mtime), data.path]);
     child.stderr.on('data', handleStderr);
   });
