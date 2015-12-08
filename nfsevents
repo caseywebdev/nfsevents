@@ -12,8 +12,11 @@ var url = 'tcp://0.0.0.0:12321';
 
 var handleStderr = function (data) { console.error(data.toString()); };
 
-var isoToMtime = function (iso) {
-  return iso.replace(/:(\d{2})\.\d{3}Z$/, '.$1').replace(/[-:T]/g, '');
+var dateToMtime = function (date) {
+  return date
+    .toISOString()
+    .replace(/:(\d{2})\.\d{3}Z$/, '.$1')
+    .replace(/[-:T]/g, '');
 };
 
 var cache = {};
@@ -26,7 +29,7 @@ if (os.platform() === 'darwin') {
   sock.connect(url);
 
   var sendMessage = function (path, stat) {
-    var mtime = stat.mtime.toISOString();
+    var mtime = dateToMtime(stat.mtime);
     if (cache[path] && cache[path] === mtime) return;
     cache[path] = mtime;
     log(mtime + ' ' + path);
@@ -53,7 +56,7 @@ if (os.platform() === 'darwin') {
   sock.on('message', function (topic, message) {
     var data = JSON.parse(message.toString());
     log(data.mtime + ' ' + data.path);
-    var child = spawn('touch', ['-mct', isoToMtime(data.mtime), data.path]);
+    var child = spawn('touch', ['-mct', data.mtime, data.path]);
     child.stderr.on('data', handleStderr);
   });
 }
