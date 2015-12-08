@@ -1,63 +1,95 @@
 #!/usr/bin/env node
+'use strict';
 
-var chokidar = require('chokidar');
-var moment = require('moment');
-var fs = require('fs');
-var path = require('path');
-var os = require('os');
-var spawn = require('child_process').spawn;
-var zmq = require('zmq');
+const _ = require('underscore');
+const chokidar = require('chokidar');
+const moment = require('moment');
+const Live = require('live-socket');
+const path = require('path');
+const os = require('os');
+const spawn = require('child_process').spawn;
+const ws = require('ws');
 
-var FORMAT = 'YYYYMMDDhhmm.ss';
-var URL = 'tcp://0.0.0.0:12321';
-var PID_PATH = '.nfsevents_pid';
-var CACHE = {};
+const FORMAT = 'YYYYMMDDhhmm.ss';
+const URL = 'ws://0.0.0.0:12321';
+const CACHE = {};
+const LOG = console.log.bind(console);
 
-var LOG = console.log.bind(console);
-
-var HANDLE_STDERR = function (data) { console.error(data.toString()); };
-
-var sock;
 if (os.platform() === 'darwin') {
 
-  // Kill the existing nfsevents watcher for this directory if it exists.
-  try { process.kill(parseInt(fs.readFileSync(PID_PATH))); } catch (er) {}
-  fs.writeFileSync(PID_PATH, process.pid);
-
   // Host machine (OS X)
-  sock = zmq.socket('pub');
-  var watchPath = path.resolve();
-  sock.connect(URL);
+  const socket = new Live({WebSocket: ws, url: URL});
+  const watchPath = path.resolve();
 
-  var sendMessage = function (path, stat) {
-    var mtime = moment(stat.mtime).format(FORMAT);
+  const sendMessage = function (path, stat) {
+    const mtime = moment(stat.mtime).format(FORMAT);
     if (CACHE[path] && CACHE[path] === mtime) return;
     CACHE[path] = mtime;
     LOG(mtime + ' ' + path);
-    sock.send(['change', JSON.stringify({path: path, mtime: mtime})]);
+    socket.send('change', JSON.stringify({path, mtime}));
   };
 
-  LOG('Watching ' + watchPath + ' and publishing changes to ' + URL);
-  chokidar
-    .watch(watchPath, {
-      alwaysStat: true,
-      ignoreInitial: true,
-      persistent: true
-    })
-    .on('add', sendMessage)
-    .on('change', sendMessage);
+  const handleRegister = er => {
+    if (er) {
+      console.error(er);
+      if (/already being watched/.test(er.message)) process.exit(1);
+      return;
+    }
+
+    LOG('Watching and reporting changes');
+    chokidar
+      .watch(watchPath, {
+        alwaysStat: true,
+        ignoreInitial: true,
+        persistent: true
+      })
+      .on('add', sendMessage)
+      .on('change', sendMessage);
+  };
+
+  const register = () => {
+    LOG(`Registering ${watchPath}...`);
+    socket.send('register', watchPath, handleRegister);
+  };
+
+  const handleClose = () => {
+    LOG(`Connection closed. Retrying...`);
+    register();
+  };
+
+  socket.on('close', handleClose);
+  register();
 } else {
 
   // Guest machine (Linux)
-  sock = zmq.socket('sub');
-  sock.bindSync(URL);
-  sock.subscribe('change');
+  LOG(`Listening for published changes on ${URL}`);
+  const sockets = [];
+  const server = new ws.Server({port: 12321});
 
-  LOG('Listening for published changes on ' + URL);
-  sock.on('message', function (topic, message) {
-    var data = JSON.parse(message.toString());
+  const handleRegister = (socket, watchPath, cb) => {
+    const existing = _.find(sockets, {watchPath});
+    if (existing) return cb(new Error(`${watchPath} is alread being watched`));
+    socket.watchPath = watchPath;
+    cb();
+  };
+
+  const handleStderr = data => console.error(data.toString());
+
+  const handleChange = (socket, message) => {
+    const data = JSON.parse(message);
     LOG(data.mtime + ' ' + data.path);
-    var child = spawn('touch', ['-mct', data.mtime, data.path]);
-    child.stderr.on('data', HANDLE_STDERR)
-  });
+    const child = spawn('touch', ['-mct', data.mtime, data.path]);
+    child.stderr.on('data', handleStderr);
+  };
+
+  const handleClose = socket => sockets.splice(sockets.indexOf(socket), 1);
+
+  const handleConnection = socket => {
+    sockets.push(socket = new Live({socket}));
+    socket.on('register', _.partial(handleRegister, socket));
+    socket.on('change', _.partial(handleChange, socket));
+    socket.on('close', _.partial(handleClose, socket));
+  };
+
+  server.on('connection', handleConnection);
 }

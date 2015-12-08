@@ -1,6 +1,6 @@
 {
   "name": "nfsevents",
-  "version": "0.0.11",
+  "version": "0.0.12",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -11,7 +11,9 @@
   },
   "dependencies": {
     "chokidar": "1.4.0",
+    "live-socket": "0.10.4",
     "moment": "2.10.6",
-    "zmq": "2.14.0"
+    "underscore": "1.8.3",
+    "ws": "0.8.1"
   }
 }
