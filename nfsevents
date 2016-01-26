@@ -2,94 +2,24 @@
 'use strict';
 
 const _ = require('underscore');
-const chokidar = require('chokidar');
-const moment = require('moment');
-const Live = require('live-socket');
-const path = require('path');
-const os = require('os');
-const spawn = require('child_process').spawn;
-const ws = require('ws');
+const nfsevents = require('.');
 
-const FORMAT = 'YYYYMMDDhhmm.ss';
-const URL = 'ws://0.0.0.0:12321';
-const CACHE = {};
-const LOG = console.log.bind(console);
+nfsevents.shouldLog = true;
 
-if (os.platform() === 'darwin') {
+const ARGV = process.argv;
+const mode = ARGV[2];
 
-  // Host machine (OS X)
-  const socket = new Live({WebSocket: ws, url: URL});
-  const watchPath = path.resolve();
+const USAGE = [
+  'Usage: nfsevents publish [path1 path2 ...]',
+  '       nfsevents subscribe [url [path1 path2 ...]]'
+].join('\n');
 
-  const sendMessage = function (path, stat) {
-    const mtime = moment(stat.mtime).format(FORMAT);
-    if (CACHE[path] && CACHE[path] === mtime) return;
-    CACHE[path] = mtime;
-    LOG(mtime + ' ' + path);
-    socket.send('change', JSON.stringify({path, mtime}));
-  };
-
-  const handleRegister = er => {
-    if (er) {
-      console.error(er);
-      if (/already being watched/.test(er.message)) process.exit(1);
-      return;
-    }
-
-    LOG('Watching and reporting changes');
-    chokidar
-      .watch(watchPath, {
-        alwaysStat: true,
-        ignoreInitial: true,
-        persistent: true
-      })
-      .on('add', sendMessage)
-      .on('change', sendMessage);
-  };
-
-  const register = () => {
-    LOG(`Registering ${watchPath}...`);
-    socket.send('register', watchPath, handleRegister);
-  };
-
-  const handleClose = () => {
-    LOG(`Connection closed. Retrying...`);
-    register();
-  };
-
-  socket.on('close', handleClose);
-  register();
+if (mode === 'publish') {
+  nfsevents.publish({paths: ARGV.slice(3)});
+} else if (mode === 'subscribe') {
+  nfsevents.subscribe({url: ARGV[3], paths: ARGV.slice(4)}, _.noop);
+} else if (!mode) {
+  console.error(USAGE);
 } else {
-
-  // Guest machine (Linux)
-  LOG(`Listening for published changes on ${URL}`);
-  const sockets = [];
-  const server = new ws.Server({port: 12321});
-
-  const handleRegister = (socket, watchPath, cb) => {
-    const existing = _.find(sockets, {watchPath});
-    if (existing) return cb(new Error(`${watchPath} is already being watched`));
-    socket.watchPath = watchPath;
-    cb();
-  };
-
-  const handleStderr = data => console.error(data.toString());
-
-  const handleChange = (socket, message) => {
-    const data = JSON.parse(message);
-    LOG(data.mtime + ' ' + data.path);
-    const child = spawn('touch', ['-mct', data.mtime, data.path]);
-    child.stderr.on('data', handleStderr);
-  };
-
-  const handleClose = socket => sockets.splice(sockets.indexOf(socket), 1);
-
-  const handleConnection = socket => {
-    sockets.push(socket = new Live({socket}));
-    socket.on('register', _.partial(handleRegister, socket));
-    socket.on('change', _.partial(handleChange, socket));
-    socket.on('close', _.partial(handleClose, socket));
-  };
-
-  server.on('connection', handleConnection);
+  console.error(`Unknown mode: "${mode}"`);
 }
